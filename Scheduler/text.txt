@@ -1,0 +1,8 @@
+curl -X POST "http://localhost:8000/schedule-task" \
+-H "Content-Type: application/json" \
+-d '{
+  "url": "https://example.com/api",
+  "data": { "key": "value" },
+  "scheduled_time": "2024-12-18T15:30:00"
+}'
+
