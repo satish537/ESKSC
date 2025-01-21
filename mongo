@@ -1,0 +1,27 @@
+from pymongo import MongoClient
+
+# Connect to the MongoDB server
+client = MongoClient('mongodb://localhost:27017/')
+db = client['mydatabase']
+
+# Define a JSON Schema
+schema = {
+    "$jsonSchema": {
+        "bsonType": "object",
+        "required": ["name", "age"],
+        "properties": {
+            "name": {
+                "bsonType": "string",
+                "description": "must be a string and is required"
+            },
+            "age": {
+                "bsonType": "int",
+                "minimum": 0,
+                "description": "must be an integer and is required"
+            }
+        }
+    }
+}
+
+# Create or update a collection to use the schema
+db.create_collection('mycollection', validator={'$jsonSchema': schema})
