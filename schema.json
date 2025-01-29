@@ -1,0 +1,22 @@
+{
+    "bsonType": "object",
+    "additionalProperties": true,
+    "required": ["field", "datatype", "origin", "sample"],
+    "properties": {
+        "field": {
+            "bsonType": "string"
+        },
+        "datatype": {
+            "bsonType": "string"
+        },
+        "origin": {
+            "bsonType": "string"
+        },
+        "sample": {
+            "bsonType": "string"
+        },
+        "notes": {
+            "bsonType": "string"
+        }
+    }
+}
