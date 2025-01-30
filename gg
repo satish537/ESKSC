@@ -1,0 +1,37 @@
+const https = require('https');
+const fs = require('fs');
+const path = require('path');
+const express = require('express');
+const next = require('next');
+ 
+// Set up Next.js for production
+const dev = process.env.NODE_ENV !== 'production';
+const app = next({ dev });
+const handle = app.getRequestHandler();
+ 
+// SSL certificate files
+const options = {
+  key: fs.readFileSync(path.join(__dirname, 'key.pem')),  // Private key file
+  cert: fs.readFileSync(path.join(__dirname, 'cert.pem')),  // Certificate file
+  ca: fs.readFileSync(path.join(__dirname, 'ca.pem')),  // Optional, CA certificate
+};
+ 
+// Initialize express app
+app.prepare().then(() => {
+  const server = express();
+ 
+  // Serve static files from the `.next` directory
+  server.use(express.static(path.join(__dirname, '.next')));
+ 
+  // Catch-all route to handle Next.js pages
+  server.all('*', (req, res) => {
+    return handle(req, res);  // Handle Next.js pages with the custom server
+  });
+ 
+  // Create the HTTPS server
+  const port = 443;  // Default HTTPS port
+  https.createServer(options, server).listen(port, (err) => {
+    if (err) throw err;
+    console.log(`HTTPS server running on https://localhost:${port}`);
+  });
+});
