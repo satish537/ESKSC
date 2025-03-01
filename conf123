@@ -1,0 +1,72 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import io
+import base64
+from atlassian import Confluence
+
+# --- Confluence Configuration ---
+CONFLUENCE_URL = "https://your-confluence-url"
+USERNAME = "your-username"
+API_TOKEN = "your-api-token"
+SPACE_KEY = "YOUR_SPACE_KEY"
+PAGE_TITLE = "Task Usage Report"
+
+confluence = Confluence(
+    url=CONFLUENCE_URL,
+    username=USERNAME,
+    password=API_TOKEN
+)
+
+# --- Load Excel Data ---
+file_path = 'your_excel_file.xlsx'
+df = pd.read_excel(file_path)
+
+# Rename columns (assuming structure from image)
+df.columns = ["Date", "Baseline", "Total Jobs"]
+df["Variation"] = df["Baseline"] - df["Total Jobs"]
+df["Date"] = pd.to_datetime(df["Date"])  # Convert Date column
+
+# --- Generate Stacked Bar Chart ---
+plt.figure(figsize=(10, 6))
+dates = df["Date"].dt.strftime("%m/%d/%Y")  # Format dates for x-axis
+
+plt.bar(dates, df["Baseline"], color="green", label="Baseline")
+plt.bar(dates, df["Total Jobs"], color="red", label="Total Jobs", bottom=df["Baseline"])
+
+plt.xlabel("Date")
+plt.ylabel("Job Count")
+plt.title("4th Peak of Oct:")
+plt.xticks(rotation=45)
+plt.legend()
+plt.grid(axis="y", linestyle="--", alpha=0.7)
+
+# --- Save Chart as Base64 ---
+buf = io.BytesIO()
+plt.savefig(buf, format="png", bbox_inches="tight")
+buf.seek(0)
+img_base64 = base64.b64encode(buf.read()).decode("utf-8")
+buf.close()
+
+# --- Create HTML Table ---
+table_html = df.to_html(index=False)
+
+# --- Create Confluence Page Content ---
+content_body = f"""
+<h1>Task Usage Report</h1>
+<h2>4th Peak of Oct:</h2>
+<p><img src="data:image/png;base64,{img_base64}" /></p>
+<h2>Detailed Table</h2>
+{table_html}
+"""
+
+# --- Post to Confluence ---
+response = confluence.create_page(
+    space=SPACE_KEY,
+    title=PAGE_TITLE,
+    body=content_body
+)
+
+if response:
+    print("Confluence page created successfully!")
+else:
+    print("Failed to create Confluence page.")
