@@ -1,9 +1,6 @@
 import requests
 from requests.auth import HTTPBasicAuth
 import pandas as pd
-import matplotlib.pyplot as plt
-import io
-import base64
 import json
 import urllib3
 
@@ -41,45 +38,42 @@ df_top4 = df_grouped.nlargest(4, 'TOTAL_JOBS')
 # Baseline value
 baseline = 1899206
 
-def create_chart(df, chart_title, image_path):
-    plt.figure(figsize=(10, 6))
-    bar_width = 0.4
-    
-    # Plot Baseline and Total Jobs
-    plt.bar(df['DATE'], [baseline]*len(df), width=bar_width, label='Baseline', color='green')
-    plt.bar(df['DATE'], df['TOTAL_JOBS'], width=bar_width, label='Total Jobs', color='red')
-    
-    plt.xlabel('Date')
-    plt.ylabel('Count')
-    plt.title(chart_title)
-    plt.xticks(rotation=45)
-    plt.legend()
-    
-    plt.savefig(image_path, format='png', bbox_inches='tight')
-    plt.close()
+# ============================
+# Prepare Confluence Chart Macro
+# ============================
+def generate_chart_macro(df):
+    """
+    Generate a Confluence Chart Macro for interactive 3D chart embedding.
+    """
+    table_rows = ""
 
-def upload_chart_to_confluence(page_id, image_path):
-    with open(image_path, "rb") as f:
-        image_data = f.read()
+    # Adding table headers
+    table_rows += "<tr><th>Date</th><th>Baseline</th><th>Total Jobs</th></tr>"
 
-    response = requests.post(
-        f"{CONFLUENCE_URL}{page_id}/child/attachment",
-        files={"file": ("chart.png", image_data, "image/png")},
-        auth=HTTPBasicAuth(USERNAME, API_TOKEN),
-        headers={"X-Atlassian-Token": "nocheck"},  # Required for Confluence attachments
-        verify=False
-    )
+    # Adding data rows
+    for _, row in df.iterrows():
+        table_rows += f"<tr><td>{row['DATE'].strftime('%m/%d/%Y')}</td><td>{baseline}</td><td>{row['TOTAL_JOBS']}</td></tr>"
 
-    if response.status_code == 200:
-        print("✅ Chart uploaded successfully!")
-        return response.json()['results'][0]['_links']['download']
-    else:
-        print(f"❌ Chart upload failed: {response.status_code}, {response.text}")
-        return None
-
-# Create the chart and save it
-chart_path = "test_chart.png"
-create_chart(df_top4, 'Top 4 Peak Days of Job Execution', chart_path)
+    # Confluence Chart Macro XML
+    chart_macro = f"""
+    <ac:structured-macro ac:name="chart" ac:schema-version="1">
+        <ac:parameter ac:name="type">bar</ac:parameter>
+        <ac:parameter ac:name="3D">true</ac:parameter>
+        <ac:parameter ac:name="xColumn">Date</ac:parameter>
+        <ac:parameter ac:name="yColumn">Total Jobs</ac:parameter>
+        <ac:parameter ac:name="series">Baseline</ac:parameter>
+        <ac:parameter ac:name="legend">true</ac:parameter>
+        <ac:parameter ac:name="title">Top 4 Peak Days of Job Execution</ac:parameter>
+        <ac:parameter ac:name="width">600</ac:parameter>
+        <ac:parameter ac:name="height">400</ac:parameter>
+        <ac:plain-text-body><![CDATA[
+        <table>
+            {table_rows}
+        </table>
+        ]]></ac:plain-text-body>
+    </ac:structured-macro>
+    """
+    return chart_macro
 
 # ============================
 # Prepare HTML Content for Confluence
@@ -109,20 +103,21 @@ def get_page_id(title, space_key):
 # ============================
 def create_or_update_page():
     page_id, version = get_page_id(PAGE_TITLE, SPACE_KEY)
-    chart_url = upload_chart_to_confluence(page_id, chart_path) if page_id else None
 
+    # Generate Confluence Chart Macro
+    chart_macro = generate_chart_macro(df_top4)
+
+    # Build Confluence Page Content
     content = f"""
     <h1>Overall Monthly Task Usage Report</h1>
     <p>Here is the detailed report based on the uploaded CSV data:</p>
+    
     <h2>Data Table</h2>
     {df_top4.to_html(index=False)}
+
     <h2>Charts</h2>
+    {chart_macro}
     """
-    
-    if chart_url:
-        content += f'<p><img src="{CONFLUENCE_URL}{chart_url}" alt="Top 4 Peak Jobs Chart"/></p>'
-    else:
-        content += "<p>⚠️ Chart upload failed. No image available.</p>"
 
     if page_id:
         new_version = version + 1
