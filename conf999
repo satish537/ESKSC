@@ -1,3 +1,29 @@
+import requests
+from requests.auth import HTTPBasicAuth
+import pandas as pd
+import matplotlib.pyplot as plt
+import io
+import base64
+import json
+import urllib3
+
+# Suppress InsecureRequestWarning due to self-signed certificate
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# ============================
+# Confluence Configuration
+# ============================
+CONFLUENCE_URL = 'https://alm-confluence.systems.uk.hsbc/rest/api/content/'  # Confluence API endpoint
+USERNAME = 'your-email@example.com'  # Replace with your Confluence email
+API_TOKEN = 'your-api-token'         # Replace with your API token or password
+SPACE_KEY = 'DIGIBAP'                # Replace with your Confluence space key
+PAGE_TITLE = 'Automated Task Usage Report'  # Page title you want to create/update
+
+# ============================
+# CSV File Configuration
+# ============================
+CSV_FILE = 'path_to_your_csv_file.csv'  # Replace with your CSV file path
+
 # ============================
 # Load CSV Data
 # ============================
@@ -32,7 +58,31 @@ def create_chart(df, chart_title, image_path):
     plt.savefig(image_path, format='png', bbox_inches='tight')
     plt.close()
 
+def get_page_id(title, space_key):
+    params = {
+        'title': title,
+        'spaceKey': space_key,
+        'expand': 'version'
+    }
+    response = requests.get(
+        f"{CONFLUENCE_URL}",
+        params=params,
+        auth=HTTPBasicAuth(USERNAME, API_TOKEN),
+        headers={"Content-Type": "application/json"},
+        verify=False
+    )
+
+    if response.status_code == 200:
+        data = response.json()
+        if data['size'] > 0:
+            return data['results'][0]['id'], data['results'][0]['version']['number']
+    return None, None
+
 def upload_chart_to_confluence(page_id, image_path):
+    if not page_id:
+        print("❌ Page ID is required before uploading an image!")
+        return None
+
     with open(image_path, "rb") as f:
         image_data = f.read()
 
@@ -51,18 +101,23 @@ def upload_chart_to_confluence(page_id, image_path):
         print(f"❌ Chart upload failed: {response.status_code}, {response.text}")
         return None
 
+# ============================
+# Create or Update Page
+# ============================
 def create_or_update_page():
+    # Get page ID before uploading image
     page_id, version = get_page_id(PAGE_TITLE, SPACE_KEY)
     
+    # If page doesn't exist, create a dummy page first
     if not page_id:
-        # Create a new page first
+        print("ℹ️ Page does not exist. Creating a placeholder page before image upload...")
         payload = {
             "type": "page",
             "title": PAGE_TITLE,
             "space": {"key": SPACE_KEY},
             "body": {
                 "storage": {
-                    "value": "<h1>Initializing Page...</h1>",
+                    "value": "<p>Placeholder page. The content will be updated shortly.</p>",
                     "representation": "storage"
                 }
             }
@@ -77,21 +132,19 @@ def create_or_update_page():
         )
 
         if response.status_code == 200:
-            print(f"✅ Page '{PAGE_TITLE}' created successfully.")
             page_id = response.json()['id']
+            version = 1
+            print(f"✅ Placeholder page '{PAGE_TITLE}' created successfully.")
         else:
-            print(f"❌ Failed to create page. Status code: {response.status_code}")
-            print(response.text)
-            return  # Stop execution if page creation fails
-    
-    # Create the chart and save it before uploading the page
+            print(f"❌ Failed to create placeholder page. Status: {response.status_code}")
+            return
+
+    # Create and upload the chart
     chart_path = "test_chart.png"
     create_chart(df_top4, 'Top 4 Peak Days of Job Execution', chart_path)
     chart_url = upload_chart_to_confluence(page_id, chart_path)
-    
-    # Fetch the latest version again before updating
-    page_id, latest_version = get_page_id(PAGE_TITLE, SPACE_KEY)
 
+    # Build the content
     content = f"""
     <h1>Overall Monthly Task Usage Report</h1>
     <p>Here is the detailed report based on the uploaded CSV data:</p>
@@ -99,14 +152,14 @@ def create_or_update_page():
     {df_top4.to_html(index=False)}
     <h2>Charts</h2>
     """
-    
+
     if chart_url:
         content += f'<p><img src="{CONFLUENCE_URL}{chart_url}" alt="Top 4 Peak Jobs Chart"/></p>'
     else:
         content += "<p>⚠️ Chart upload failed. No image available.</p>"
 
-    # Update the newly created page with actual content
-    new_version = latest_version + 1  # Ensure we use the latest version
+    # Update the page with new content
+    new_version = version + 1
     payload = {
         "id": page_id,
         "type": "page",
