@@ -1,0 +1,181 @@
+import requests
+from requests.auth import HTTPBasicAuth
+import pandas as pd
+import matplotlib.pyplot as plt
+import io
+import base64
+import json
+import urllib3
+
+# Suppress InsecureRequestWarning due to self-signed certificate
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# ============================
+# Confluence Configuration
+# ============================
+CONFLUENCE_URL = 'https://alm-confluence.systems.uk.hsbc/rest/api/content/'  # Confluence API endpoint
+USERNAME = 'your-email@example.com'  # Replace with your Confluence email
+API_TOKEN = 'your-api-token'         # Replace with your API token or password
+SPACE_KEY = 'DIGIBAP'                # Replace with your Confluence space key
+PAGE_TITLE = 'Automated Task Usage Report'  # Page title you want to create/update
+
+# ============================
+# CSV File Configuration
+# ============================
+CSV_FILE = 'path_to_your_csv_file.csv'  # Replace with your CSV file path
+
+# ============================
+# Load CSV Data
+# ============================
+df = pd.read_csv(CSV_FILE)
+
+# Convert DATE column to datetime format
+df['DATE'] = pd.to_datetime(df['DATE'], errors='coerce')
+
+# Aggregate total jobs per date
+df_grouped = df.groupby('DATE', as_index=False)['TOTAL_JOBS'].sum()
+
+# Get top 4 dates with highest total jobs
+df_top4 = df_grouped.nlargest(4, 'TOTAL_JOBS')
+
+# Baseline value
+baseline = 1899206
+
+def create_chart(df, chart_title, image_path):
+    plt.figure(figsize=(10, 6))
+    bar_width = 0.4
+    
+    # Plot Baseline and Total Jobs
+    plt.bar(df['DATE'], [baseline]*len(df), width=bar_width, label='Baseline', color='green')
+    plt.bar(df['DATE'], df['TOTAL_JOBS'], width=bar_width, label='Total Jobs', color='red')
+    
+    plt.xlabel('Date')
+    plt.ylabel('Count')
+    plt.title(chart_title)
+    plt.xticks(rotation=45)
+    plt.legend()
+    
+    plt.savefig(image_path, format='png', bbox_inches='tight')
+    plt.close()
+
+def upload_chart_to_confluence(page_id, image_path):
+    with open(image_path, "rb") as f:
+        image_data = f.read()
+
+    response = requests.post(
+        f"{CONFLUENCE_URL}{page_id}/child/attachment",
+        files={"file": ("chart.png", image_data, "image/png")},
+        auth=HTTPBasicAuth(USERNAME, API_TOKEN),
+        headers={"X-Atlassian-Token": "nocheck"},  # Required for Confluence attachments
+        verify=False
+    )
+
+    if response.status_code == 200:
+        print("✅ Chart uploaded successfully!")
+        return response.json()['results'][0]['_links']['download']
+    else:
+        print(f"❌ Chart upload failed: {response.status_code}, {response.text}")
+        return None
+
+# Create the chart and save it
+chart_path = "test_chart.png"
+create_chart(df_top4, 'Top 4 Peak Days of Job Execution', chart_path)
+
+# ============================
+# Prepare HTML Content for Confluence
+# ============================
+def get_page_id(title, space_key):
+    params = {
+        'title': title,
+        'spaceKey': space_key,
+        'expand': 'version'
+    }
+    response = requests.get(
+        f"{CONFLUENCE_URL}",
+        params=params,
+        auth=HTTPBasicAuth(USERNAME, API_TOKEN),
+        headers={"Content-Type": "application/json"},
+        verify=False
+    )
+
+    if response.status_code == 200:
+        data = response.json()
+        if data['size'] > 0:
+            return data['results'][0]['id'], data['results'][0]['version']['number']
+    return None, None
+
+# ============================
+# Create or Update Page
+# ============================
+def create_or_update_page():
+    page_id, version = get_page_id(PAGE_TITLE, SPACE_KEY)
+    chart_url = upload_chart_to_confluence(page_id, chart_path) if page_id else None
+
+    content = f"""
+    <h1>Overall Monthly Task Usage Report</h1>
+    <p>Here is the detailed report based on the uploaded CSV data:</p>
+    <h2>Data Table</h2>
+    {df_top4.to_html(index=False)}
+    <h2>Charts</h2>
+    """
+    
+    if chart_url:
+        content += f'<p><img src="{CONFLUENCE_URL}{chart_url}" alt="Top 4 Peak Jobs Chart"/></p>'
+    else:
+        content += "<p>⚠️ Chart upload failed. No image available.</p>"
+
+    if page_id:
+        new_version = version + 1
+        payload = {
+            "id": page_id,
+            "type": "page",
+            "title": PAGE_TITLE,
+            "space": {"key": SPACE_KEY},
+            "body": {
+                "storage": {
+                    "value": content,
+                    "representation": "storage"
+                }
+            },
+            "version": {"number": new_version}
+        }
+
+        response = requests.put(
+            f"{CONFLUENCE_URL}{page_id}",
+            data=json.dumps(payload),
+            auth=HTTPBasicAuth(USERNAME, API_TOKEN),
+            headers={"Content-Type": "application/json"},
+            verify=False
+        )
+    else:
+        payload = {
+            "type": "page",
+            "title": PAGE_TITLE,
+            "space": {"key": SPACE_KEY},
+            "body": {
+                "storage": {
+                    "value": content,
+                    "representation": "storage"
+                }
+            }
+        }
+
+        response = requests.post(
+            f"{CONFLUENCE_URL}",
+            data=json.dumps(payload),
+            auth=HTTPBasicAuth(USERNAME, API_TOKEN),
+            headers={"Content-Type": "application/json"},
+            verify=False
+        )
+
+    if response.status_code == 200:
+        print(f"✅ Page '{PAGE_TITLE}' updated successfully.")
+    else:
+        print(f"❌ Failed to update page. Status code: {response.status_code}")
+        print(response.text)
+
+# ============================
+# Execute the Script
+# ============================
+if __name__ == "__main__":
+    create_or_update_page()
