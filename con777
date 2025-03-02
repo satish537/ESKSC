@@ -1,0 +1,78 @@
+def create_or_update_page():
+    page_id, version = get_page_id(PAGE_TITLE, SPACE_KEY)
+
+    if not page_id:
+        # Create a new page first
+        payload = {
+            "type": "page",
+            "title": PAGE_TITLE,
+            "space": {"key": SPACE_KEY},
+            "body": {
+                "storage": {
+                    "value": "<h1>Initializing Page...</h1>",
+                    "representation": "storage"
+                }
+            }
+        }
+
+        response = requests.post(
+            f"{CONFLUENCE_URL}",
+            data=json.dumps(payload),
+            auth=HTTPBasicAuth(USERNAME, API_TOKEN),
+            headers={"Content-Type": "application/json"},
+            verify=False
+        )
+
+        if response.status_code == 200:
+            print(f"✅ Page '{PAGE_TITLE}' created successfully.")
+            page_id = response.json()['id']
+        else:
+            print(f"❌ Failed to create page. Status code: {response.status_code}")
+            print(response.text)
+            return  # Stop execution if page creation fails
+
+    # Now that the page exists, upload the chart
+    chart_url = upload_chart_to_confluence(page_id, "test_chart.png")
+
+    content = f"""
+    <h1>Overall Monthly Task Usage Report</h1>
+    <p>Here is the detailed report based on the uploaded CSV data:</p>
+    <h2>Data Table</h2>
+    {df_top4.to_html(index=False)}
+    <h2>Charts</h2>
+    """
+
+    if chart_url:
+        content += f'<p><img src="{CONFLUENCE_URL}{chart_url}" alt="Top 4 Peak Jobs Chart"/></p>'
+    else:
+        content += "<p>⚠️ Chart upload failed. No image available.</p>"
+
+    # Update the newly created page with actual content
+    new_version = version + 1 if version else 1
+    payload = {
+        "id": page_id,
+        "type": "page",
+        "title": PAGE_TITLE,
+        "space": {"key": SPACE_KEY},
+        "body": {
+            "storage": {
+                "value": content,
+                "representation": "storage"
+            }
+        },
+        "version": {"number": new_version}
+    }
+
+    response = requests.put(
+        f"{CONFLUENCE_URL}{page_id}",
+        data=json.dumps(payload),
+        auth=HTTPBasicAuth(USERNAME, API_TOKEN),
+        headers={"Content-Type": "application/json"},
+        verify=False
+    )
+
+    if response.status_code == 200:
+        print(f"✅ Page '{PAGE_TITLE}' updated successfully.")
+    else:
+        print(f"❌ Failed to update page. Status code: {response.status_code}")
+        print(response.text)
