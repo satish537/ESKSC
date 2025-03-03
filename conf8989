@@ -11,6 +11,13 @@ def generate_chart_macro(df):
     for _, row in df.iterrows():
         table_rows += f"<tr><td>{row['DATE'].strftime('%m/%d/%Y')}</td><td>{baseline}</td><td>{row['TOTAL_JOBS']}</td></tr>"
 
+    # Confluence requires proper table format inside CDATA
+    confluence_table = f"""
+    <table>
+        {table_rows}
+    </table>
+    """
+
     # Confluence Chart Macro XML
     chart_macro = f"""
     <ac:structured-macro ac:name="chart" ac:schema-version="1">
@@ -24,10 +31,9 @@ def generate_chart_macro(df):
         <ac:parameter ac:name="width">600</ac:parameter>
         <ac:parameter ac:name="height">400</ac:parameter>
         <ac:plain-text-body><![CDATA[
-        <table>
-            {table_rows}
-        </table>
+        {confluence_table}
         ]]></ac:plain-text-body>
     </ac:structured-macro>
     """
+
     return chart_macro
