@@ -1,108 +1,10 @@
-import requests
-from requests.auth import HTTPBasicAuth
-import pandas as pd
-import json
-import urllib3
-
-# Suppress InsecureRequestWarning due to self-signed certificate
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-# ============================
-# Confluence Configuration
-# ============================
-CONFLUENCE_URL = 'https://alm-confluence.systems.uk.hsbc/rest/api/content/'  # Confluence API endpoint
-USERNAME = 'your-email@example.com'  # Replace with your Confluence email
-API_TOKEN = 'your-api-token'         # Replace with your API token or password
-SPACE_KEY = 'DIGIBAP'                # Replace with your Confluence space key
-PAGE_TITLE = 'Automated Task Usage Report'  # Page title you want to create/update
-
-# ============================
-# CSV File Configuration
-# ============================
-CSV_FILE = 'path_to_your_csv_file.csv'  # Replace with your CSV file path
-
-# ============================
-# Load CSV Data
-# ============================
-df = pd.read_csv(CSV_FILE)
-
-# Convert DATE column to datetime format
-df['DATE'] = pd.to_datetime(df['DATE'], errors='coerce')
-
-# Aggregate total jobs per date
-df_grouped = df.groupby('DATE', as_index=False)['TOTAL_JOBS'].sum()
-
-# Get top 4 dates with highest total jobs
-df_top4 = df_grouped.nlargest(4, 'TOTAL_JOBS')
-
-# Baseline value
-baseline = 1899206
-
-# ============================
-# Prepare Confluence Chart Macro
-# ============================
-def generate_chart_macro(df):
-    """
-    Generate a Confluence Chart Macro for interactive 3D chart embedding.
-    """
-    table_rows = ""
-
-    # Adding table headers
-    table_rows += "<tr><th>Date</th><th>Baseline</th><th>Total Jobs</th></tr>"
-
-    # Adding data rows
-    for _, row in df.iterrows():
-        table_rows += f"<tr><td>{row['DATE'].strftime('%m/%d/%Y')}</td><td>{baseline}</td><td>{row['TOTAL_JOBS']}</td></tr>"
-
-    # Confluence Chart Macro XML
-    chart_macro = f"""
-    <ac:structured-macro ac:name="chart" ac:schema-version="1">
-        <ac:parameter ac:name="type">bar</ac:parameter>
-        <ac:parameter ac:name="3D">true</ac:parameter>
-        <ac:parameter ac:name="xColumn">Date</ac:parameter>
-        <ac:parameter ac:name="yColumn">Total Jobs</ac:parameter>
-        <ac:parameter ac:name="series">Baseline</ac:parameter>
-        <ac:parameter ac:name="legend">true</ac:parameter>
-        <ac:parameter ac:name="title">Top 4 Peak Days of Job Execution</ac:parameter>
-        <ac:parameter ac:name="width">600</ac:parameter>
-        <ac:parameter ac:name="height">400</ac:parameter>
-        <ac:plain-text-body><![CDATA[
-        <table>
-            {table_rows}
-        </table>
-        ]]></ac:plain-text-body>
-    </ac:structured-macro>
-    """
-    return chart_macro
-
-# ============================
-# Prepare HTML Content for Confluence
-# ============================
-def get_page_id(title, space_key):
-    params = {
-        'title': title,
-        'spaceKey': space_key,
-        'expand': 'version'
-    }
-    response = requests.get(
-        f"{CONFLUENCE_URL}",
-        params=params,
-        auth=HTTPBasicAuth(USERNAME, API_TOKEN),
-        headers={"Content-Type": "application/json"},
-        verify=False
-    )
-
-    if response.status_code == 200:
-        data = response.json()
-        if data['size'] > 0:
-            return data['results'][0]['id'], data['results'][0]['version']['number']
-    return None, None
-
-# ============================
-# Create or Update Page
-# ============================
 def create_or_update_page():
     page_id, version = get_page_id(PAGE_TITLE, SPACE_KEY)
+
+    # DEBUG: Check if df_top4 has data
+    if df_top4.empty:
+        print("⚠️ No data found in df_top4! Check your CSV file or processing logic.")
+        return
 
     # Generate Confluence Chart Macro
     chart_macro = generate_chart_macro(df_top4)
@@ -168,9 +70,3 @@ def create_or_update_page():
     else:
         print(f"❌ Failed to update page. Status code: {response.status_code}")
         print(response.text)
-
-# ============================
-# Execute the Script
-# ============================
-if __name__ == "__main__":
-    create_or_update_page()
