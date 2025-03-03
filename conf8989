@@ -1,72 +1,33 @@
-def create_or_update_page():
-    page_id, version = get_page_id(PAGE_TITLE, SPACE_KEY)
-
-    # DEBUG: Check if df_top4 has data
-    if df_top4.empty:
-        print("⚠️ No data found in df_top4! Check your CSV file or processing logic.")
-        return
-
-    # Generate Confluence Chart Macro
-    chart_macro = generate_chart_macro(df_top4)
-
-    # Build Confluence Page Content
-    content = f"""
-    <h1>Overall Monthly Task Usage Report</h1>
-    <p>Here is the detailed report based on the uploaded CSV data:</p>
-    
-    <h2>Data Table</h2>
-    {df_top4.to_html(index=False)}
-
-    <h2>Charts</h2>
-    {chart_macro}
+def generate_chart_macro(df):
     """
+    Generate a Confluence Chart Macro for interactive 3D chart embedding.
+    """
+    if df.empty:
+        return "<p>⚠️ No data available for the chart.</p>"
 
-    if page_id:
-        new_version = version + 1
-        payload = {
-            "id": page_id,
-            "type": "page",
-            "title": PAGE_TITLE,
-            "space": {"key": SPACE_KEY},
-            "body": {
-                "storage": {
-                    "value": content,
-                    "representation": "storage"
-                }
-            },
-            "version": {"number": new_version}
-        }
+    table_rows = "<tr><th>Date</th><th>Baseline</th><th>Total Jobs</th></tr>"
 
-        response = requests.put(
-            f"{CONFLUENCE_URL}{page_id}",
-            data=json.dumps(payload),
-            auth=HTTPBasicAuth(USERNAME, API_TOKEN),
-            headers={"Content-Type": "application/json"},
-            verify=False
-        )
-    else:
-        payload = {
-            "type": "page",
-            "title": PAGE_TITLE,
-            "space": {"key": SPACE_KEY},
-            "body": {
-                "storage": {
-                    "value": content,
-                    "representation": "storage"
-                }
-            }
-        }
+    # Adding data rows
+    for _, row in df.iterrows():
+        table_rows += f"<tr><td>{row['DATE'].strftime('%m/%d/%Y')}</td><td>{baseline}</td><td>{row['TOTAL_JOBS']}</td></tr>"
 
-        response = requests.post(
-            f"{CONFLUENCE_URL}",
-            data=json.dumps(payload),
-            auth=HTTPBasicAuth(USERNAME, API_TOKEN),
-            headers={"Content-Type": "application/json"},
-            verify=False
-        )
-
-    if response.status_code == 200:
-        print(f"✅ Page '{PAGE_TITLE}' updated successfully.")
-    else:
-        print(f"❌ Failed to update page. Status code: {response.status_code}")
-        print(response.text)
+    # Confluence Chart Macro XML
+    chart_macro = f"""
+    <ac:structured-macro ac:name="chart" ac:schema-version="1">
+        <ac:parameter ac:name="type">bar</ac:parameter>
+        <ac:parameter ac:name="3D">true</ac:parameter>
+        <ac:parameter ac:name="xColumn">Date</ac:parameter>
+        <ac:parameter ac:name="yColumn">Total Jobs</ac:parameter>
+        <ac:parameter ac:name="series">Baseline</ac:parameter>
+        <ac:parameter ac:name="legend">true</ac:parameter>
+        <ac:parameter ac:name="title">Top 4 Peak Days of Job Execution</ac:parameter>
+        <ac:parameter ac:name="width">600</ac:parameter>
+        <ac:parameter ac:name="height">400</ac:parameter>
+        <ac:plain-text-body><![CDATA[
+        <table>
+            {table_rows}
+        </table>
+        ]]></ac:plain-text-body>
+    </ac:structured-macro>
+    """
+    return chart_macro
