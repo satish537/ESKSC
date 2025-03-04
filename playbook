@@ -1,0 +1,28 @@
+---
+- name: Ansible AAP Playbook - Print Hello and Send Kafka Event
+  hosts: localhost
+  gather_facts: no
+
+  vars:
+    kafka_bootstrap_servers: "kafka.example.com:9092"
+    kafka_topic: "events"
+    kafka_message: '{"event": "Ansible Task Completed", "status": "success"}'
+
+  tasks:
+    - name: Print Hello
+      ansible.builtin.debug:
+        msg: "Hello"
+
+    - name: Send Event to Kafka
+      community.general.kafka_lib:
+        name: "{{ kafka_topic }}"
+        partition: 0
+        replicas: 1
+        state: present
+        bootstrap_servers: "{{ kafka_bootstrap_servers }}"
+        topic_conf:
+          retention.ms: 3600000
+        messages:
+          - key: "ansible_task"
+            value: "{{ kafka_message }}"
+      delegate_to: localhost
