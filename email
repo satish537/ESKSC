@@ -1,0 +1,71 @@
+import smtplib
+import mimetypes
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from atlassian import Confluence
+
+# Confluence Configuration
+CONFLUENCE_URL = "https://your-confluence-instance.atlassian.net"
+CONFLUENCE_USER = "your-email@example.com"
+CONFLUENCE_API_TOKEN = "your-api-token"
+SPACE_KEY = "YOUR_SPACE_KEY"
+PAGE_TITLE = "Your Page Title"
+PARENT_PAGE_ID = 12345678  # Parent Page ID (Optional)
+
+# Image URLs (Upload images manually or via API)
+IMAGE_URLS = [
+    "https://your-confluence-instance.atlassian.net/download/attachments/12345678/image1.png",
+    "https://your-confluence-instance.atlassian.net/download/attachments/12345678/image2.png",
+]
+
+# Email Configuration
+SMTP_SERVER = "smtp.example.com"
+SMTP_PORT = 587
+EMAIL_SENDER = "your-email@example.com"
+EMAIL_PASSWORD = "your-email-password"
+EMAIL_RECEIVER = "recipient@example.com"
+
+# Confluence API Connection
+confluence = Confluence(
+    url=CONFLUENCE_URL,
+    username=CONFLUENCE_USER,
+    password=CONFLUENCE_API_TOKEN
+)
+
+# Create Confluence Page Content with Images
+content = "<h1>Confluence Page with Images</h1>"
+for img_url in IMAGE_URLS:
+    content += f'<p><img src="{img_url}" width="500"/></p>'
+
+# Create or Update Confluence Page
+page = confluence.get_page_by_title(SPACE_KEY, PAGE_TITLE)
+if page:
+    page_id = page['id']
+    confluence.update_page(
+        page_id, PAGE_TITLE, content, parent_id=PARENT_PAGE_ID
+    )
+else:
+    page_id = confluence.create_page(
+        SPACE_KEY, PAGE_TITLE, content, parent_id=PARENT_PAGE_ID
+    )['id']
+
+page_url = f"{CONFLUENCE_URL}/pages/viewpage.action?pageId={page_id}"
+print(f"Confluence Page Created: {page_url}")
+
+# Send Email with Confluence Link
+def send_email():
+    msg = MIMEMultipart()
+    msg['From'] = EMAIL_SENDER
+    msg['To'] = EMAIL_RECEIVER
+    msg['Subject'] = "Confluence Page Link"
+    body = f"Hello,\n\nYour Confluence page has been created: {page_url}\n\nBest Regards."
+    msg.attach(MIMEText(body, 'plain'))
+
+    server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+    server.starttls()
+    server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+    server.send_message(msg)
+    server.quit()
+    print("Email Sent Successfully")
+
+send_email()
