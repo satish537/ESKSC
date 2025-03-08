@@ -1,0 +1,174 @@
+import requests
+from requests.auth import HTTPBasicAuth
+import pandas as pd
+import json
+import urllib3
+
+# Suppress InsecureRequestWarning due to self-signed certificate
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# ============================
+# Confluence Configuration
+# ============================
+CONFLUENCE_URL = 'https://alm-confluence.systems.uk.hsbc/rest/api/content/'
+USERNAME = 'your-email@example.com'  
+API_TOKEN = 'your-api-token'         
+SPACE_KEY = 'DIGIBAP'                
+PAGE_TITLE = 'Automated Task Usage Report'  
+
+# ============================
+# CSV File Configuration
+# ============================
+CSV_FILE = 'path_to_your_csv_file.csv'  
+
+# ============================
+# Load CSV Data
+# ============================
+df = pd.read_csv(CSV_FILE)
+
+# Convert DATE column to datetime format
+df['DATE'] = pd.to_datetime(df['DATE'], errors='coerce')
+
+# Aggregate total jobs per date
+df_grouped = df.groupby('DATE', as_index=False)['TOTAL_JOBS'].sum()
+
+# Get top 4 dates with highest total jobs
+df_top4 = df_grouped.nlargest(4, 'TOTAL_JOBS')
+
+# Baseline value
+baseline = 1899206
+df_top4['Base Line'] = baseline  # Adding Baseline column
+
+# ============================
+# Prepare Confluence Chart Macro
+# ============================
+def generate_chart_macro(df):
+    """
+    Generate a Confluence Chart Macro using the 'Chart from Table' visualization.
+    """
+    if df.empty:
+        return "<p>⚠️ No data available for the chart.</p>"
+
+    table_rows = "<tr><th>DATE</th><th>Base Line</th><th>TOTAL_JOBS</th></tr>"
+
+    # Adding data rows
+    for _, row in df.iterrows():
+        table_rows += f"<tr><td>{row['DATE'].strftime('%m/%d/%Y')}</td><td>{row['Base Line']}</td><td>{row['TOTAL_JOBS']}</td></tr>"
+
+    # Confluence Chart Macro XML
+    chart_macro = f"""
+    <ac:structured-macro ac:name="chart-from-table" ac:schema-version="1">
+        <ac:parameter ac:name="type">column</ac:parameter>
+        <ac:parameter ac:name="3D">true</ac:parameter>
+        <ac:parameter ac:name="label-column">DATE</ac:parameter>
+        <ac:parameter ac:name="value-column">Base Line,TOTAL_JOBS</ac:parameter>
+        <ac:parameter ac:name="title">Peak of the Month</ac:parameter>
+        <ac:parameter ac:name="legend">true</ac:parameter>
+        <ac:plain-text-body><![CDATA[
+        <table>
+            {table_rows}
+        </table>
+        ]]></ac:plain-text-body>
+    </ac:structured-macro>
+    """
+    return chart_macro
+
+# ============================
+# Prepare HTML Content for Confluence
+# ============================
+def get_page_id(title, space_key):
+    params = {
+        'title': title,
+        'spaceKey': space_key,
+        'expand': 'version'
+    }
+    response = requests.get(
+        f"{CONFLUENCE_URL}",
+        params=params,
+        auth=HTTPBasicAuth(USERNAME, API_TOKEN),
+        headers={"Content-Type": "application/json"},
+        verify=False
+    )
+
+    if response.status_code == 200:
+        data = response.json()
+        if data['size'] > 0:
+            return data['results'][0]['id'], data['results'][0]['version']['number']
+    return None, None
+
+# ============================
+# Create or Update Page
+# ============================
+def create_or_update_page():
+    page_id, version = get_page_id(PAGE_TITLE, SPACE_KEY)
+
+    # Generate Confluence Chart Macro
+    chart_macro = generate_chart_macro(df_top4)
+
+    # Build Confluence Page Content
+    content = f"""
+    <h1>Overall Monthly Task Usage Report</h1>
+    <p>Here is the detailed report based on the uploaded CSV data:</p>
+    
+    <h2>Data Table</h2>
+    {df_top4.to_html(index=False)}
+
+    <h2>Charts</h2>
+    {chart_macro}
+    """
+
+    if page_id:
+        new_version = version + 1
+        payload = {
+            "id": page_id,
+            "type": "page",
+            "title": PAGE_TITLE,
+            "space": {"key": SPACE_KEY},
+            "body": {
+                "storage": {
+                    "value": content,
+                    "representation": "storage"
+                }
+            },
+            "version": {"number": new_version}
+        }
+
+        response = requests.put(
+            f"{CONFLUENCE_URL}{page_id}",
+            data=json.dumps(payload),
+            auth=HTTPBasicAuth(USERNAME, API_TOKEN),
+            headers={"Content-Type": "application/json"},
+            verify=False
+        )
+    else:
+        payload = {
+            "type": "page",
+            "title": PAGE_TITLE,
+            "space": {"key": SPACE_KEY},
+            "body": {
+                "storage": {
+                    "value": content,
+                    "representation": "storage"
+                }
+            }
+        }
+
+        response = requests.post(
+            f"{CONFLUENCE_URL}",
+            data=json.dumps(payload),
+            auth=HTTPBasicAuth(USERNAME, API_TOKEN),
+            headers={"Content-Type": "application/json"},
+            verify=False
+        )
+
+    if response.status_code == 200:
+        print(f"✅ Page '{PAGE_TITLE}' updated successfully.")
+    else:
+        print(f"❌ Failed to update page. Status code: {response.status_code}")
+        print(response.text)
+
+# ============================
+# Execute the Script
+# ============================
+if __name__ == "__main__":
+    create_or_update_page()
