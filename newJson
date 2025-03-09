@@ -1,0 +1,9 @@
+{
+    "CONFLUENCE_URL": "https://alm-confluence.systems.uk.hsbc/rest/api/content/",
+    "USERNAME": "satish537",
+    "API_TOKEN": "your-api-token",
+    "SPACE_KEY": "DIGIBAP",
+    "PAGE_TITLE": "Automated Task Usage Report",
+    "CSV_FILE": "path_to_your_csv_file.csv",
+    "BASELINE": 1899206
+}
