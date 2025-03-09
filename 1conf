@@ -180,3 +180,24 @@ def create_or_update_page():
 # ============================
 if __name__ == "__main__":
     create_or_update_page()
+
+
+chart_macro = f"""
+<ac:structured-macro ac:name="table-chart">
+    <ac:parameter ac:name="type">column</ac:parameter>
+    <ac:parameter ac:name="is3d">true</ac:parameter>
+    <ac:parameter ac:name="column">DATE</ac:parameter>
+    <ac:parameter ac:name="aggregation">Base Line,TOTAL_JOBS</ac:parameter>
+    <ac:parameter ac:name="title">4th Peak of the Month</ac:parameter>
+    <ac:parameter ac:name="legend">true</ac:parameter>
+    <ac:parameter ac:name="datepattern">yyyy-MM-dd</ac:parameter>
+    <ac:structured-macro ac:name="table">
+        <ac:plain-text-body><![CDATA[
+            <table>
+                <tr><th>DATE</th><th>TOTAL_JOBS</th><th>Base Line</th></tr>
+                {''.join(f'<tr><td>{row["DATE"].strftime("%Y-%m-%d")}</td><td>{row["TOTAL_JOBS"]}</td><td>{row["Base Line"]}</td></tr>' for _, row in df_top4.iterrows())}
+            </table>
+        ]]></ac:plain-text-body>
+    </ac:structured-macro>
+</ac:structured-macro>
+"""
