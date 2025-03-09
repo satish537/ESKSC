@@ -49,26 +49,34 @@ def generate_chart_macro(df):
     if df.empty:
         return "<p>⚠️ No data available for the chart.</p>"
 
-    table_rows = "<tr><th>DATE</th><th>Base Line</th><th>TOTAL_JOBS</th></tr>"
+    table_rows = "<tr><th>DATE</th><th>TOTAL_JOBS</th><th>Base Line</th></tr>"
 
     # Adding data rows
     for _, row in df.iterrows():
-        table_rows += f"<tr><td>{row['DATE'].strftime('%m/%d/%Y')}</td><td>{row['Base Line']}</td><td>{row['TOTAL_JOBS']}</td></tr>"
+        table_rows += f"<tr><td>{row['DATE'].strftime('%Y-%m-%d')}</td><td>{row['TOTAL_JOBS']}</td><td>{row['Base Line']}</td></tr>"
 
-    # Confluence Chart Macro XML
-    chart_macro = f"""
-    <ac:structured-macro ac:name="chart-from-table" ac:schema-version="1">
-        <ac:parameter ac:name="type">column</ac:parameter>
-        <ac:parameter ac:name="3D">true</ac:parameter>
-        <ac:parameter ac:name="label-column">DATE</ac:parameter>
-        <ac:parameter ac:name="value-column">Base Line,TOTAL_JOBS</ac:parameter>
-        <ac:parameter ac:name="title">Peak of the Month</ac:parameter>
-        <ac:parameter ac:name="legend">true</ac:parameter>
+    # Confluence Table (Ensuring it's inside a macro)
+    confluence_table = f"""
+    <ac:structured-macro ac:name="table">
         <ac:plain-text-body><![CDATA[
         <table>
             {table_rows}
         </table>
         ]]></ac:plain-text-body>
+    </ac:structured-macro>
+    """
+
+    # Confluence Chart from Table Macro
+    chart_macro = f"""
+    <ac:structured-macro ac:name="chart-from-table">
+        <ac:parameter ac:name="type">column</ac:parameter>
+        <ac:parameter ac:name="is3d">true</ac:parameter>
+        <ac:parameter ac:name="column">DATE</ac:parameter>
+        <ac:parameter ac:name="aggregation">Base Line,TOTAL_JOBS</ac:parameter>
+        <ac:parameter ac:name="title">4th Peak of the Month</ac:parameter>
+        <ac:parameter ac:name="legend">true</ac:parameter>
+        <ac:parameter ac:name="datepattern">yyyy-MM-dd</ac:parameter>
+        {confluence_table}
     </ac:structured-macro>
     """
     return chart_macro
