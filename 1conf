@@ -220,3 +220,39 @@ chart_macro = f"""
     ]]></ac:plain-text-body>
 </ac:structured-macro>
 """
+
+
+
+
+def generate_chart_macro(df):
+    """
+    Generate a Confluence Chart Macro using the 'table-chart' visualization.
+    """
+    if df.empty:
+        return "<p>⚠️ No data available for the chart.</p>"
+
+    table_rows = "<tr><th>DATE</th><th>TOTAL_JOBS</th><th>Base Line</th></tr>"
+
+    # Adding data rows
+    for _, row in df.iterrows():
+        table_rows += f"<tr><td>{row['DATE'].strftime('%Y-%m-%d')}</td><td>{row['TOTAL_JOBS']}</td><td>{row['Base Line']}</td></tr>"
+
+    # Confluence Table with Proper Nesting
+    chart_macro = f"""
+    <ac:structured-macro ac:name="table-chart">
+        <ac:parameter ac:name="type">column</ac:parameter>
+        <ac:parameter ac:name="is3d">true</ac:parameter>
+        <ac:parameter ac:name="column">DATE</ac:parameter>
+        <ac:parameter ac:name="aggregation">Base Line,TOTAL_JOBS</ac:parameter>
+        <ac:parameter ac:name="title">4th Peak of the Month</ac:parameter>
+        <ac:parameter ac:name="legend">true</ac:parameter>
+        <ac:parameter ac:name="datepattern">yyyy-MM-dd</ac:parameter>
+        <ac:plain-text-body><![CDATA[
+        <table>
+            {table_rows}
+        </table>
+        ]]></ac:plain-text-body>
+    </ac:structured-macro>
+    """
+    return chart_macro
+
