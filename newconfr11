@@ -1,0 +1,248 @@
+import requests
+from requests.auth import HTTPBasicAuth
+import pandas as pd
+import json
+import urllib3
+import os
+from datetime import datetime
+import logging
+from typing import Tuple, Optional
+from pathlib import Path
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('confluence_update.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+class ConfluenceReporter:
+    def __init__(self, config_path: str = "config.json"):
+        """
+        Initialize the ConfluenceReporter with configuration.
+        
+        Args:
+            config_path (str): Path to the configuration JSON file
+        """
+        self.config = self._load_config(config_path)
+        self.session = self._create_session()
+
+    def _load_config(self, config_path: str) -> dict:
+        """
+        Load configuration from JSON file.
+        
+        Args:
+            config_path (str): Path to the configuration file
+        
+        Returns:
+            dict: Configuration dictionary
+        """
+        try:
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+                required_keys = ['CONFLUENCE_URL', 'USERNAME', 'API_TOKEN', 
+                               'SPACE_KEY', 'PAGE_TITLE', 'CSV_FILE']
+                
+                if not all(key in config for key in required_keys):
+                    raise ValueError(f"Missing required configuration keys. Required: {required_keys}")
+                
+                return config
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Configuration file not found at {config_path}")
+        except json.JSONDecodeError:
+            raise ValueError(f"Invalid JSON in configuration file: {config_path}")
+
+    def _create_session(self) -> requests.Session:
+        """
+        Create and configure a requests session.
+        
+        Returns:
+            requests.Session: Configured session object
+        """
+        session = requests.Session()
+        session.auth = HTTPBasicAuth(self.config['USERNAME'], self.config['API_TOKEN'])
+        session.headers.update({
+            "Content-Type": "application/json",
+            "X-Atlassian-Token": "no-check"
+        })
+        return session
+
+    def load_and_process_data(self) -> pd.DataFrame:
+        """
+        Load and process CSV data.
+        
+        Returns:
+            pd.DataFrame: Processed dataframe with top 4 dates
+        """
+        csv_path = Path(self.config['CSV_FILE'])
+        if not csv_path.exists():
+            raise FileNotFoundError(f"CSV file not found: {csv_path}")
+
+        try:
+            df = pd.read_csv(csv_path)
+            
+            # Validate required columns
+            required_columns = {'DATE', 'TOTAL_JOBS'}
+            if not required_columns.issubset(df.columns):
+                raise ValueError(f"CSV file missing required columns: {required_columns}")
+
+            # Process data
+            df['DATE'] = pd.to_datetime(df['DATE'], errors='coerce')
+            df_grouped = df.groupby('DATE', as_index=False)['TOTAL_JOBS'].sum()
+            df_top4 = df_grouped.nlargest(4, 'TOTAL_JOBS')
+            df_top4['Base Line'] = self.config.get('BASELINE', 1899206)
+            
+            return df_top4
+
+        except pd.errors.EmptyDataError:
+            raise ValueError("CSV file is empty")
+        except Exception as e:
+            raise Exception(f"Error processing CSV data: {str(e)}")
+
+    def generate_table(self, df: pd.DataFrame) -> str:
+        """
+        Generate HTML table for Confluence.
+        
+        Args:
+            df (pd.DataFrame): Processed dataframe
+        
+        Returns:
+            str: HTML table markup
+        """
+        table_rows = ["<tr><th>DATE</th><th>TOTAL_JOBS</th><th>Base Line</th></tr>"]
+        
+        for _, row in df.iterrows():
+            table_rows.append(
+                f"<tr><td>{row['DATE'].strftime('%Y-%m-%d')}</td>"
+                f"<td>{row['TOTAL_JOBS']:,}</td>"
+                f"<td>{row['Base Line']:,}</td></tr>"
+            )
+        
+        return f"<table>{' '.join(table_rows)}</table>"
+
+    def generate_chart_macro(self) -> str:
+        """
+        Generate Confluence chart macro.
+        
+        Returns:
+            str: Confluence chart macro markup
+        """
+        return """
+        <ac:structured-macro ac:name="table-chart">
+            <ac:parameter ac:name="type">column</ac:parameter>
+            <ac:parameter ac:name="is3d">true</ac:parameter>
+            <ac:parameter ac:name="column">DATE</ac:parameter>
+            <ac:parameter ac:name="aggregation">Base Line,TOTAL_JOBS</ac:parameter>
+            <ac:parameter ac:name="title">4th Peak of the Month</ac:parameter>
+            <ac:parameter ac:name="legend">true</ac:parameter>
+            <ac:parameter ac:name="datepattern">yyyy-MM-dd</ac:parameter>
+        </ac:structured-macro>
+        """
+
+    def get_page_info(self) -> Tuple[Optional[str], Optional[int]]:
+        """
+        Get Confluence page ID and version.
+        
+        Returns:
+            Tuple[Optional[str], Optional[int]]: Page ID and version number
+        """
+        try:
+            params = {
+                'title': self.config['PAGE_TITLE'],
+                'spaceKey': self.config['SPACE_KEY'],
+                'expand': 'version'
+            }
+            response = self.session.get(
+                self.config['CONFLUENCE_URL'],
+                params=params
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            if data['size'] > 0:
+                return data['results'][0]['id'], data['results'][0]['version']['number']
+            return None, None
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to get page info: {str(e)}")
+            raise
+
+    def create_or_update_page(self, content: str, page_id: Optional[str] = None, 
+                            version: Optional[int] = None) -> None:
+        """
+        Create or update Confluence page.
+        
+        Args:
+            content (str): Page content in Confluence storage format
+            page_id (Optional[str]): Existing page ID for updates
+            version (Optional[int]): Current page version
+        """
+        try:
+            payload = {
+                "type": "page",
+                "title": self.config['PAGE_TITLE'],
+                "space": {"key": self.config['SPACE_KEY']},
+                "body": {
+                    "storage": {
+                        "value": content,
+                        "representation": "storage"
+                    }
+                }
+            }
+
+            if page_id:
+                payload["id"] = page_id
+                payload["version"] = {"number": version + 1}
+                response = self.session.put(
+                    f"{self.config['CONFLUENCE_URL']}{page_id}",
+                    json=payload
+                )
+            else:
+                response = self.session.post(
+                    self.config['CONFLUENCE_URL'],
+                    json=payload
+                )
+            
+            response.raise_for_status()
+            logger.info(f"✅ Page '{self.config['PAGE_TITLE']}' {'updated' if page_id else 'created'} successfully.")
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to {'update' if page_id else 'create'} page: {str(e)}")
+            if response := getattr(e, 'response', None):
+                logger.error(f"Response: {response.text}")
+            raise
+
+    def run(self) -> None:
+        """
+        Execute the main workflow.
+        """
+        try:
+            # Load and process data
+            df_top4 = self.load_and_process_data()
+            
+            # Generate content
+            table_html = self.generate_table(df_top4)
+            chart_macro = self.generate_chart_macro()
+            
+            content = f"""
+            <h1>Overall Monthly Task Usage Report</h1>
+            <p>Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC</p>
+            
+            <h2>Data Table</h2>
+            {table_html}
+            
+            <h2>Charts</h2>
+            {chart_macro}
+            """
+            
+            # Get page info and update/create
+            page_id, version = self.get_page_info()
+            self.create_or_update_page(content, page_id, version)
+
+        except Exception as e:
+            logger.error(f"Error in main workflow: {str(e)}")
+            raise
