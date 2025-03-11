@@ -68,3 +68,43 @@ else:
         body=content
     )
     print(f'Page "{PAGE_TITLE}" created successfully.')
+
+
+    Call Flow Explanation
+Initiation:
+
+The process starts with a user initiating a decommission request from the User Portal.
+A Master Change Request (CR) is created as part of this initiation.
+Workflow Creation:
+
+The system generates a workflow with an initial state.
+This workflow moves through different categories such as Admin UI, Category, Subcategory, Database, SF endpoint, and other systems.
+User Action & Validation (Week 1):
+
+The user takes action (usually on Thursday/Friday).
+The system performs Validation.
+If successful, it proceeds to further steps; otherwise, the workflow is reset.
+Raising CRs & Approval Checks:
+
+Change Requests (CRs) are raised for hosts.
+The system continuously checks if the Master Record (MR) is approved or if the status has changed.
+Database Updates & Workflow Reset:
+
+If validation passes, the workflow updates the database.
+If any step fails, the system updates the database with failure and resets the workflow.
+Final Verification:
+
+The system verifies whether the workflow items have moved to validation.
+If confirmed, no further action is required.
+State Changes in the Workflow
+Previous State	Action/Event	New State
+Initial Workflow Created	User submits decommission request	Workflow Initialized
+Workflow Initialized	User takes action (Thursday/Friday)	Validation
+Validation	Passed	Ready to Validate
+Ready to Validate	User clicks on action	CRs Raised for Hosts
+CRs Raised for Hosts	Master Record (MR) approved/status changed	Reset workflow status
+Reset Workflow Status	Verify workflow items if moved to validation	Updated Status in DB
+Validation	Failed	Reset Workflow
+Any Step Failure	System updates database with failure	Reset Workflow State
+Updated Status in DB	No further action needed	Workflow Completed
+
